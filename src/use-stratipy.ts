@@ -56,33 +56,36 @@ export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
       const aiMsgId = `msg_${msgCounterRef.current++}`
       setMessages((prev) => [...prev, { id: aiMsgId, role: "ai", text: "" }])
       setStreaming(true)
+      sendingRef.current = false
 
-      // Close any existing EventSource
-      eventSourceRef.current?.close()
-
-      eventSourceRef.current = connectSSE(coreOpts, convId, {
-        onMessage: (chunk) => {
-          setMessages((prev) => {
-            const updated = [...prev]
-            const last = updated[updated.length - 1]
-            if (last?.role === "ai") {
-              updated[updated.length - 1] = { ...last, text: last.text + chunk }
-            }
-            return updated
-          })
-        },
-        onFinish: () => {
-          eventSourceRef.current = null
-          setStreaming(false)
-          sendingRef.current = false
-        },
-        onError: (err) => {
-          eventSourceRef.current = null
-          setStreaming(false)
-          sendingRef.current = false
-          setError(err)
-        },
-      })
+      // Connect SSE if not already connected (keep alive for multi-turn conversations)
+      if (!eventSourceRef.current) {
+        eventSourceRef.current = connectSSE(coreOpts, convId, {
+          onMessage: (chunk) => {
+            // Each SSE message means the AI has produced output — re-enable input
+            setStreaming(false)
+            setMessages((prev) => {
+              const updated = [...prev]
+              const last = updated[updated.length - 1]
+              if (last?.role === "ai") {
+                updated[updated.length - 1] = { ...last, text: last.text + chunk }
+              }
+              return updated
+            })
+          },
+          onFinish: () => {
+            eventSourceRef.current = null
+            setStreaming(false)
+            sendingRef.current = false
+          },
+          onError: (err) => {
+            eventSourceRef.current = null
+            setStreaming(false)
+            sendingRef.current = false
+            setError(err)
+          },
+        })
+      }
     } catch (err) {
       sendingRef.current = false
       setStreaming(false)
