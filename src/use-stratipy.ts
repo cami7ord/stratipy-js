@@ -11,7 +11,7 @@ export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
 
   const eventSourceRef = useRef<SSEConnection | null>(null)
   const optionsRef = useRef(options)
-  const msgCounterRef = useRef(0)
+  const genId = () => crypto.randomUUID()
   const sendingRef = useRef(false)
 
   optionsRef.current = options
@@ -47,14 +47,14 @@ export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
       }
 
       // Append user message
-      const userMsgId = `msg_${msgCounterRef.current++}`
+      const userMsgId = genId()
       setMessages((prev) => [...prev, { id: userMsgId, role: "user", text: trimmed }])
 
       // Send to API
       await sendMessage(coreOpts, convId, trimmed, attachments)
 
       // Append empty AI message and start streaming
-      const aiMsgId = `msg_${msgCounterRef.current++}`
+      const aiMsgId = genId()
       setMessages((prev) => [...prev, { id: aiMsgId, role: "ai", text: "" }])
       setStreaming(true)
       sendingRef.current = false
@@ -108,7 +108,6 @@ export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
     setStreaming(false)
     setError(null)
     setConversationId(null)
-    msgCounterRef.current = 0
     sendingRef.current = false
   }, [])
 

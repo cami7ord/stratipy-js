@@ -206,17 +206,24 @@ describe("connectSSE", () => {
     expect(callbacks.onFinish).toHaveBeenCalled()
   })
 
-  it("calls onError and closes on error", () => {
-    const mockES = { onmessage: null, onerror: null as any, addEventListener: vi.fn(), close: vi.fn() }
+  it("calls onError after exhausting retries", () => {
+    vi.useFakeTimers()
+    const mockES = { onopen: null as any, onmessage: null, onerror: null as any, addEventListener: vi.fn(), close: vi.fn() }
     vi.stubGlobal("EventSource", vi.fn(() => mockES))
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
     connectSSE(opts, "conv_1", callbacks)
 
+    // Trigger 3 retries (with backoff timers) + 1 final error
+    for (let i = 0; i < 3; i++) {
+      mockES.onerror()
+      expect(callbacks.onError).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(10_000)
+    }
     mockES.onerror()
 
-    expect(mockES.close).toHaveBeenCalled()
     expect(callbacks.onError).toHaveBeenCalledWith({ status: 0, message: "Connection lost" })
+    vi.useRealTimers()
   })
 
   it("ignores messages without text field", () => {
