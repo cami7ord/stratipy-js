@@ -66,11 +66,68 @@ function Chat() {
 | `reset` | `() => void` | Clear messages and start a new conversation |
 | `cancel` | `() => Promise<void>` | Stop the current AI response |
 
+## Framework-Agnostic Core
+
+If you're not using React (or want full control), import the core functions directly:
+
+```ts
+import {
+  createConversation,
+  sendMessage,
+  cancelConversation,
+  connectSSE,
+} from "@stratipy/react/core"
+
+// Create a conversation
+const { conversationId } = await createConversation(
+  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
+  { dataset_url: "https://example.com/data.csv" } // optional config
+)
+
+// Send a message
+await sendMessage(
+  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
+  conversationId,
+  "Summarize the dataset"
+)
+
+// Stream the response via SSE
+const connection = connectSSE(
+  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
+  conversationId,
+  {
+    onMessage: (text) => console.log("AI:", text),
+    onFinish: () => console.log("Done"),
+    onError: (err) => console.error(err.message),
+  }
+)
+
+// Cancel if needed
+connection.close()
+await cancelConversation(
+  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
+  conversationId
+)
+```
+
+### Core API
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `createConversation` | `(opts, config?) => Promise<ConversationCreated>` | Create a new conversation |
+| `sendMessage` | `(opts, conversationId, text, attachments?) => Promise<void>` | Send a user message |
+| `connectSSE` | `(opts, conversationId, callbacks) => SSEConnection` | Stream AI responses with auto-reconnect |
+| `cancelConversation` | `(opts, conversationId) => Promise<void>` | Cancel the current AI response |
+
+All core functions take an `opts` object with `instanceId`, `apiKey`, and optional `apiUrl`.
+
+SSE connections automatically reconnect with exponential backoff (up to 3 retries).
+
 ## Types
 
 ```typescript
 interface Message {
-  id: string          // "msg_0", "msg_1", etc.
+  id: string
   role: "user" | "ai"
   text: string
 }
@@ -86,6 +143,23 @@ interface StratipyError {
   status: number
   message: string
   code?: string       // "insufficient_credits" for 402
+}
+
+// Core types (from @stratipy/react/core)
+interface ConversationCreated {
+  conversationId: string
+  instanceId: string
+  strategyId: string
+}
+
+interface SSECallbacks {
+  onMessage: (text: string) => void
+  onFinish: () => void
+  onError: (error: StratipyError) => void
+}
+
+interface SSEConnection {
+  close(): void
 }
 ```
 
