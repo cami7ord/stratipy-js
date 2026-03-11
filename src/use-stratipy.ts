@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react"
 import type { UseStratipyOptions, UseStratipyReturn, Message, Attachment, StratipyError } from "./types"
+import type { SSEConnection } from "./core"
 import { createConversation, sendMessage, cancelConversation, connectSSE } from "./core"
 
 export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
@@ -8,7 +9,7 @@ export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
   const [error, setError] = useState<StratipyError | null>(null)
   const [conversationId, setConversationId] = useState<string | null>(null)
 
-  const eventSourceRef = useRef<EventSource | null>(null)
+  const eventSourceRef = useRef<SSEConnection | null>(null)
   const optionsRef = useRef(options)
   const msgCounterRef = useRef(0)
   const sendingRef = useRef(false)

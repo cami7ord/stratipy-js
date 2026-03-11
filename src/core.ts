@@ -92,34 +92,72 @@ export interface SSECallbacks {
   onError: (error: StratipyError) => void
 }
 
+export interface SSEConnection {
+  close(): void
+}
+
+const MAX_RETRIES = 3
+
 export function connectSSE(
   opts: CoreOptions,
   conversationId: string,
   callbacks: SSECallbacks
-): EventSource {
+): SSEConnection {
   const url = `${baseUrl(opts)}/strategies/instances/${opts.instanceId}/conversations/${conversationId}/events?key=${opts.apiKey}`
-  const es = new EventSource(url)
 
-  es.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data)
-      if (data.text) {
-        callbacks.onMessage(data.text)
+  let retries = 0
+  let es: EventSource | null = null
+  let closed = false
+  let retryTimeout: ReturnType<typeof setTimeout> | null = null
+
+  function connect() {
+    if (closed) return
+
+    es = new EventSource(url)
+
+    es.onopen = () => {
+      retries = 0
+    }
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data)
+        if (data.text) {
+          callbacks.onMessage(data.text)
+        }
+      } catch {
+        // ignore parse errors
       }
-    } catch {
-      // ignore parse errors
+    }
+
+    es.addEventListener("finish", () => {
+      es?.close()
+      closed = true
+      callbacks.onFinish()
+    })
+
+    es.onerror = () => {
+      es?.close()
+      if (closed) return
+
+      if (retries < MAX_RETRIES) {
+        const delay = Math.min(1000 * 2 ** retries, 10000)
+        retries++
+        retryTimeout = setTimeout(connect, delay)
+      } else {
+        closed = true
+        callbacks.onError({ status: 0, message: "Connection lost" })
+      }
     }
   }
 
-  es.addEventListener("finish", () => {
-    es.close()
-    callbacks.onFinish()
-  })
+  connect()
 
-  es.onerror = () => {
-    es.close()
-    callbacks.onError({ status: 0, message: "Connection lost" })
+  return {
+    close() {
+      closed = true
+      if (retryTimeout) clearTimeout(retryTimeout)
+      es?.close()
+    },
   }
-
-  return es
 }
