@@ -16,6 +16,16 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./core": {
+      "import": {
+        "types": "./dist/core-export.d.ts",
+        "default": "./dist/core-export.js"
+      },
+      "require": {
+        "types": "./dist/core-export.d.cts",
+        "default": "./dist/core-export.cjs"
+      }
     }
   },
   "files": [
