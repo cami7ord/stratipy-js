@@ -1,3 +1,5 @@
 export { createConversation, sendMessage, cancelConversation, connectSSE } from "./core"
 export type { ConversationCreated, SSECallbacks, SSEConnection } from "./core"
-export type { Attachment, StratipyError } from "./types"
+export { ChatSession } from "./chat-session"
+export type { ChatSessionOptions, ChatSessionState, ChatSessionListener } from "./chat-session"
+export type { Message, Attachment, StratipyError } from "./types"

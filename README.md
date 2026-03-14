@@ -1,6 +1,6 @@
 # @stratipy/react
 
-Add an AI agent to your React app in 60 seconds.
+Add an AI chat to your app. Works with React, Vue, Svelte, or vanilla JS.
 
 ## Install
 
@@ -8,7 +8,110 @@ Add an AI agent to your React app in 60 seconds.
 npm install @stratipy/react
 ```
 
-## Quick Start
+## The Fastest Way (React)
+
+Drop a floating chat widget into your app with one line:
+
+```tsx
+import { StratipyChat } from "@stratipy/react"
+
+function App() {
+  return (
+    <>
+      <YourExistingApp />
+      <StratipyChat.Default
+        instanceId="your-instance-id"
+        apiKey="pk_your_publishable_key"
+      />
+    </>
+  )
+}
+```
+
+That's it. You get a floating chat button in the bottom-right corner that opens a chat panel. No CSS, no state management, no boilerplate.
+
+### Options
+
+| Prop | Type | Default | Description |
+|------|------|---------|-------------|
+| `instanceId` | `string` | — | Strategy instance ID from your dashboard |
+| `apiKey` | `string` | — | Publishable key (`pk_...`) |
+| `title` | `string` | `"Chat"` | Panel header text |
+| `placeholder` | `string` | `"Type a message..."` | Input placeholder |
+| `position` | `"bottom-right" \| "bottom-left"` | `"bottom-right"` | Where the button appears |
+| `defaultOpen` | `boolean` | `false` | Start with the panel open |
+| `config` | `Record<string, string>` | — | Config props passed at conversation start |
+| `apiUrl` | `string` | `"https://api.stratipy.com"` | API base URL |
+
+## Custom UI (React)
+
+Want full control over the design? Use the headless `<StratipyChat>` component. You get all the chat logic (state, streaming, scroll, keyboard handling) — you bring the markup:
+
+```tsx
+import { StratipyChat } from "@stratipy/react"
+
+function App() {
+  return (
+    <StratipyChat
+      instanceId="your-instance-id"
+      apiKey="pk_your_publishable_key"
+    >
+      {({ messages, streaming, inputProps, submitInput, scrollRef, reset }) => (
+        <div className="my-chat">
+          <button onClick={reset}>New chat</button>
+
+          <div ref={scrollRef} className="my-messages">
+            {messages.map((msg) => (
+              <div key={msg.id} className={msg.role}>
+                {msg.text}
+              </div>
+            ))}
+            {streaming && <div>Thinking...</div>}
+          </div>
+
+          <div className="my-input">
+            <textarea {...inputProps} placeholder="Message..." />
+            <button onClick={submitInput}>Send</button>
+          </div>
+        </div>
+      )}
+    </StratipyChat>
+  )
+}
+```
+
+### What you get for free
+
+The headless component handles all the boring stuff so you don't have to:
+
+- **Auto-scroll** to new messages (pauses when you scroll up, shows a "scroll to bottom" indicator via `isScrolledUp`)
+- **Enter to send**, Shift+Enter for newline
+- **Auto-resize** textarea as you type
+- **Server-side cancel** when you reset or leave the page (saves credits)
+- **Lazy conversation creation** — no API calls until the first message
+
+### Render prop API
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `messages` | `Message[]` | All messages in the conversation |
+| `send` | `(text, attachments?) => Promise<void>` | Send a message |
+| `streaming` | `boolean` | `true` while the AI is responding |
+| `error` | `StratipyError \| null` | Last error, or `null` |
+| `conversationId` | `string \| null` | Current conversation ID |
+| `reset` | `() => void` | Clear chat and start over |
+| `cancel` | `() => Promise<void>` | Stop the AI mid-response |
+| `scrollRef` | `RefObject<HTMLDivElement>` | Attach to your scrollable messages container |
+| `isScrolledUp` | `boolean` | `true` when the user has scrolled up |
+| `scrollToBottom` | `() => void` | Scroll back to the latest message |
+| `input` | `string` | Current input value |
+| `setInput` | `(value) => void` | Set the input value |
+| `inputProps` | `object` | Spread onto a `<textarea>` for auto-resize + keyboard handling |
+| `submitInput` | `() => void` | Submit the current input |
+
+## Hook (React)
+
+If you don't need the built-in helpers and want to manage everything yourself:
 
 ```tsx
 import { useStratipy } from "@stratipy/react"
@@ -26,7 +129,6 @@ function Chat() {
           <strong>{msg.role === "user" ? "You" : "AI"}:</strong> {msg.text}
         </div>
       ))}
-
       <form onSubmit={(e) => {
         e.preventDefault()
         const input = e.currentTarget.elements.namedItem("msg") as HTMLInputElement
@@ -41,87 +143,196 @@ function Chat() {
 }
 ```
 
-## API Reference
+## Vue, Svelte, Vanilla JS
 
-### `useStratipy(options)`
+Use `ChatSession` from the core module. It manages all the conversation state, SSE streaming, and cleanup — you just subscribe to changes and update your UI:
 
-#### Options
+```js
+import { ChatSession } from "@stratipy/react/core"
 
-| Prop | Type | Required | Description |
-|------|------|----------|-------------|
-| `instanceId` | `string` | Yes | Strategy instance ID from your dashboard |
-| `apiKey` | `string` | Yes | Publishable key (`pk_...`) |
-| `config` | `Record<string, string>` | No | Conversation-scoped config props |
-| `apiUrl` | `string` | No | API base URL (defaults to `https://api.stratipy.com`) |
+const chat = new ChatSession({
+  instanceId: "your-instance-id",
+  apiKey: "pk_your_publishable_key",
+})
 
-#### Return Value
+// Subscribe to state changes
+chat.subscribe(({ messages, streaming, error }) => {
+  // Update your UI here — works with any framework
+  console.log(messages, streaming, error)
+})
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `messages` | `Message[]` | All messages in the conversation |
-| `send` | `(text: string, attachments?: Attachment[]) => Promise<void>` | Send a message (creates conversation on first call) |
-| `streaming` | `boolean` | `true` while the AI is responding |
-| `error` | `StratipyError \| null` | Last error, or `null` |
-| `conversationId` | `string \| null` | Current conversation ID, or `null` before first send |
-| `reset` | `() => void` | Clear messages and start a new conversation |
-| `cancel` | `() => Promise<void>` | Stop the current AI response |
+// Send a message (creates conversation automatically on first call)
+await chat.send("Hello!")
 
-## Framework-Agnostic Core
+// Start over (cancels server-side too, saves credits)
+chat.reset()
 
-If you're not using React (or want full control), import the core functions directly:
+// Clean up when the page unloads
+window.addEventListener("beforeunload", () => chat.destroy())
+```
 
-```ts
+### Vue example
+
+```vue
+<script setup>
+import { ref, onMounted, onUnmounted } from "vue"
+import { ChatSession } from "@stratipy/react/core"
+
+const messages = ref([])
+const streaming = ref(false)
+const error = ref(null)
+const input = ref("")
+
+const chat = new ChatSession({
+  instanceId: "your-instance-id",
+  apiKey: "pk_your_publishable_key",
+})
+
+onMounted(() => {
+  chat.subscribe((state) => {
+    messages.value = state.messages
+    streaming.value = state.streaming
+    error.value = state.error
+  })
+})
+
+onUnmounted(() => chat.destroy())
+
+async function sendMessage() {
+  const text = input.value.trim()
+  if (!text) return
+  input.value = ""
+  await chat.send(text)
+}
+</script>
+
+<template>
+  <div>
+    <div v-for="msg in messages" :key="msg.id">
+      <strong>{{ msg.role === "user" ? "You" : "AI" }}:</strong> {{ msg.text }}
+    </div>
+    <div v-if="streaming">Thinking...</div>
+    <div v-if="error" style="color: red">{{ error.message }}</div>
+    <input v-model="input" @keydown.enter="sendMessage" :disabled="streaming" />
+    <button @click="sendMessage" :disabled="streaming">Send</button>
+  </div>
+</template>
+```
+
+### Svelte example
+
+```svelte
+<script>
+  import { ChatSession } from "@stratipy/react/core"
+  import { onDestroy } from "svelte"
+
+  let messages = $state([])
+  let streaming = $state(false)
+  let error = $state(null)
+  let input = $state("")
+
+  const chat = new ChatSession({
+    instanceId: "your-instance-id",
+    apiKey: "pk_your_publishable_key",
+  })
+
+  chat.subscribe((state) => {
+    messages = state.messages
+    streaming = state.streaming
+    error = state.error
+  })
+
+  onDestroy(() => chat.destroy())
+
+  async function sendMessage() {
+    const text = input.trim()
+    if (!text) return
+    input = ""
+    await chat.send(text)
+  }
+</script>
+
+{#each messages as msg (msg.id)}
+  <div>
+    <strong>{msg.role === "user" ? "You" : "AI"}:</strong> {msg.text}
+  </div>
+{/each}
+{#if streaming}<div>Thinking...</div>{/if}
+{#if error}<div style="color: red">{error.message}</div>{/if}
+<input bind:value={input} onkeydown={(e) => e.key === "Enter" && sendMessage()} disabled={streaming} />
+<button onclick={sendMessage} disabled={streaming}>Send</button>
+```
+
+### ChatSession API
+
+| Method | Description |
+|--------|-------------|
+| `subscribe(listener)` | Listen to state changes. Returns an unsubscribe function. |
+| `getState()` | Get current state snapshot (`messages`, `streaming`, `error`, `conversationId`). |
+| `send(text, attachments?)` | Send a message. Creates conversation on first call. |
+| `reset()` | Cancel server-side, clear all state, start fresh. |
+| `cancel()` | Stop the current AI response. |
+| `destroy()` | Clean up all resources. Call on page unload or component teardown. |
+
+### Low-level functions
+
+If you need even more control, the individual functions are also available:
+
+```js
 import {
   createConversation,
   sendMessage,
   cancelConversation,
   connectSSE,
 } from "@stratipy/react/core"
-
-// Create a conversation
-const { conversationId } = await createConversation(
-  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
-  { dataset_url: "https://example.com/data.csv" } // optional config
-)
-
-// Send a message
-await sendMessage(
-  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
-  conversationId,
-  "Summarize the dataset"
-)
-
-// Stream the response via SSE
-const connection = connectSSE(
-  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
-  conversationId,
-  {
-    onMessage: (text) => console.log("AI:", text),
-    onFinish: () => console.log("Done"),
-    onError: (err) => console.error(err.message),
-  }
-)
-
-// Cancel if needed
-connection.close()
-await cancelConversation(
-  { instanceId: "your-instance-id", apiKey: "pk_your_publishable_key" },
-  conversationId
-)
 ```
 
-### Core API
+## Common Patterns
 
-| Function | Signature | Description |
-|----------|-----------|-------------|
-| `createConversation` | `(opts, config?) => Promise<ConversationCreated>` | Create a new conversation |
-| `sendMessage` | `(opts, conversationId, text, attachments?) => Promise<void>` | Send a user message |
-| `connectSSE` | `(opts, conversationId, callbacks) => SSEConnection` | Stream AI responses with auto-reconnect |
-| `cancelConversation` | `(opts, conversationId) => Promise<void>` | Cancel the current AI response |
+### With conversation config
 
-All core functions take an `opts` object with `instanceId`, `apiKey`, and optional `apiUrl`.
+Some strategies accept configuration at conversation start:
 
-SSE connections automatically reconnect with exponential backoff (up to 3 retries).
+```tsx
+<StratipyChat.Default
+  instanceId="your-instance-id"
+  apiKey="pk_your_publishable_key"
+  config={{
+    dataset_url: "https://example.com/data.csv",
+    analysis_type: "summary",
+  }}
+/>
+```
+
+### Error handling
+
+```tsx
+<StratipyChat instanceId="..." apiKey="pk_...">
+  {({ messages, error, ...rest }) => (
+    <div>
+      {error?.code === "insufficient_credits" && (
+        <div>You've run out of credits. <a href="/billing">Top up</a></div>
+      )}
+      {error && error.code !== "insufficient_credits" && (
+        <div>{error.message}</div>
+      )}
+      {/* rest of your chat UI */}
+    </div>
+  )}
+</StratipyChat>
+```
+
+### Local development
+
+Point to your local API server:
+
+```tsx
+<StratipyChat.Default
+  instanceId="your-instance-id"
+  apiKey="pk_your_publishable_key"
+  apiUrl="http://localhost:8080"
+/>
+```
 
 ## Types
 
@@ -142,147 +353,7 @@ interface Attachment {
 interface StratipyError {
   status: number
   message: string
-  code?: string       // "insufficient_credits" for 402
-}
-
-// Core types (from @stratipy/react/core)
-interface ConversationCreated {
-  conversationId: string
-  instanceId: string
-  strategyId: string
-}
-
-interface SSECallbacks {
-  onMessage: (text: string) => void
-  onFinish: () => void
-  onError: (error: StratipyError) => void
-}
-
-interface SSEConnection {
-  close(): void
-}
-```
-
-## Examples
-
-### Styled Chat (Tailwind)
-
-```tsx
-import { useStratipy } from "@stratipy/react"
-
-function Chat() {
-  const { messages, send, streaming, error } = useStratipy({
-    instanceId: "your-instance-id",
-    apiKey: "pk_your_publishable_key",
-  })
-
-  return (
-    <div className="flex flex-col h-[500px] rounded-xl border bg-white">
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.map((msg) => (
-          <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm ${
-              msg.role === "user"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-100 text-gray-900"
-            }`}>
-              {msg.text || <span className="animate-pulse">...</span>}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {error && (
-        <div className="px-4 py-2 text-sm text-red-600">{error.message}</div>
-      )}
-
-      <form className="flex gap-2 p-4 border-t" onSubmit={(e) => {
-        e.preventDefault()
-        const input = e.currentTarget.elements.namedItem("msg") as HTMLInputElement
-        send(input.value)
-        input.value = ""
-      }}>
-        <input
-          name="msg"
-          className="flex-1 px-3 py-2 rounded-lg border text-sm"
-          placeholder="Type a message..."
-          disabled={streaming}
-        />
-        <button
-          type="submit"
-          disabled={streaming}
-          className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm disabled:opacity-50"
-        >
-          Send
-        </button>
-      </form>
-    </div>
-  )
-}
-```
-
-### Cancel and Reset
-
-```tsx
-function Chat() {
-  const { messages, send, streaming, cancel, reset } = useStratipy({
-    instanceId: "your-instance-id",
-    apiKey: "pk_your_publishable_key",
-  })
-
-  return (
-    <div>
-      <div className="flex gap-2 mb-4">
-        {streaming && <button onClick={cancel}>Stop generating</button>}
-        <button onClick={reset}>New conversation</button>
-      </div>
-      {/* messages + input ... */}
-    </div>
-  )
-}
-```
-
-### With Config Props
-
-Some strategies accept configuration at conversation start:
-
-```tsx
-function DataAnalysis() {
-  const { messages, send, streaming } = useStratipy({
-    instanceId: "your-instance-id",
-    apiKey: "pk_your_publishable_key",
-    config: {
-      dataset_url: "https://example.com/data.csv",
-      analysis_type: "summary",
-    },
-  })
-
-  return (/* your UI */)
-}
-```
-
-### Error Handling
-
-```tsx
-function Chat() {
-  const { messages, send, error } = useStratipy({
-    instanceId: "your-instance-id",
-    apiKey: "pk_your_publishable_key",
-  })
-
-  return (
-    <div>
-      {error?.code === "insufficient_credits" && (
-        <div className="bg-amber-50 p-3 rounded text-amber-800">
-          You've run out of credits. <a href="/billing">Top up</a>
-        </div>
-      )}
-      {error && error.code !== "insufficient_credits" && (
-        <div className="bg-red-50 p-3 rounded text-red-800">{error.message}</div>
-      )}
-      {/* messages + input ... */}
-    </div>
-  )
+  code?: string  // "insufficient_credits" for 402
 }
 ```
 
