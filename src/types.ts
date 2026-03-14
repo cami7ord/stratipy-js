@@ -39,3 +39,48 @@ export interface UseStratipyReturn {
   reset: () => void
   cancel: () => Promise<void>
 }
+
+export interface ChatInputProps {
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void
+  onKeyDown: (e: React.KeyboardEvent<HTMLTextAreaElement>) => void
+  disabled: boolean
+  "aria-label": string
+}
+
+export interface ChatHelpers {
+  /** Ref to attach to the scrollable messages container */
+  scrollRef: React.RefObject<HTMLDivElement | null>
+  /** Whether the user has scrolled up from the bottom */
+  isScrolledUp: boolean
+  /** Scroll to the bottom of the messages container */
+  scrollToBottom: () => void
+  /** Current input value */
+  input: string
+  /** Set the input value */
+  setInput: (value: string) => void
+  /** Props to spread onto a <textarea> */
+  inputProps: ChatInputProps
+  /** Submit the current input */
+  submitInput: () => void
+}
+
+export interface StratipyChatRenderProps extends UseStratipyReturn, ChatHelpers {}
+
+export interface StratipyChatProps extends UseStratipyOptions {
+  /** Render prop — receives all conversation state + helpers */
+  children: (props: StratipyChatRenderProps) => React.ReactNode
+}
+
+export interface StratipyChatDefaultProps extends UseStratipyOptions {
+  /** Custom class name for the root container */
+  className?: string
+  /** Placeholder text for the input */
+  placeholder?: string
+  /** Title shown in the panel header */
+  title?: string
+  /** Position of the floating button */
+  position?: "bottom-right" | "bottom-left"
+  /** Whether the panel starts open */
+  defaultOpen?: boolean
+}

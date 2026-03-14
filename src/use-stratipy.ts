@@ -11,15 +11,25 @@ export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
 
   const eventSourceRef = useRef<SSEConnection | null>(null)
   const optionsRef = useRef(options)
+  const conversationIdRef = useRef<string | null>(null)
   const genId = () => crypto.randomUUID()
   const sendingRef = useRef(false)
 
   optionsRef.current = options
+  conversationIdRef.current = conversationId
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       eventSourceRef.current?.close()
+      const convId = conversationIdRef.current
+      if (convId) {
+        const opts = optionsRef.current
+        cancelConversation(
+          { instanceId: opts.instanceId, apiKey: opts.apiKey, apiUrl: opts.apiUrl },
+          convId
+        )
+      }
     }
   }, [])
 
@@ -104,12 +114,21 @@ export function useStratipy(options: UseStratipyOptions): UseStratipyReturn {
   const reset = useCallback(() => {
     eventSourceRef.current?.close()
     eventSourceRef.current = null
+
+    if (conversationId) {
+      const opts = optionsRef.current
+      cancelConversation(
+        { instanceId: opts.instanceId, apiKey: opts.apiKey, apiUrl: opts.apiUrl },
+        conversationId
+      )
+    }
+
     setMessages([])
     setStreaming(false)
     setError(null)
     setConversationId(null)
     sendingRef.current = false
-  }, [])
+  }, [conversationId])
 
   const cancel = useCallback(async () => {
     eventSourceRef.current?.close()
