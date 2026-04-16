@@ -97,8 +97,6 @@ export interface SSEConnection {
   close(): void
 }
 
-const MAX_RETRIES = 3
-
 export function connectSSE(
   opts: CoreOptions,
   conversationId: string,
@@ -106,29 +104,10 @@ export function connectSSE(
 ): SSEConnection {
   const url = `${baseUrl(opts)}/strategies/instances/${opts.instanceId}/conversations/${conversationId}/events`
 
-  let retries = 0
   let closed = false
-  let controller: AbortController | null = null
-  let retryTimeout: ReturnType<typeof setTimeout> | null = null
+  const controller = new AbortController()
 
-  function scheduleRetry() {
-    if (closed) return
-    if (retries >= MAX_RETRIES) {
-      closed = true
-      callbacks.onError({ status: 0, message: "Connection lost" })
-      return
-    }
-    const delay = Math.min(1000 * 2 ** retries, 10000)
-    retries++
-    retryTimeout = setTimeout(() => {
-      void connect()
-    }, delay)
-  }
-
-  async function connect() {
-    if (closed) return
-
-    controller = new AbortController()
+  async function run() {
     let res: Response
     try {
       res = await fetch(url, {
@@ -138,26 +117,23 @@ export function connectSSE(
         cache: "no-store",
       })
     } catch {
-      if (closed) return
-      scheduleRetry()
+      if (!closed) {
+        closed = true
+        callbacks.onError({ status: 0, message: "Connection lost" })
+      }
       return
     }
 
     if (!res.ok) {
-      // Terminal error (401, 402, 404, ...) — don't retry, surface to caller.
-      const err = await errorFromResponse(res)
       closed = true
-      callbacks.onError(err)
+      callbacks.onError(await errorFromResponse(res))
       return
     }
-
     if (!res.body) {
       closed = true
       callbacks.onError({ status: 0, message: "No response body" })
       return
     }
-
-    retries = 0
 
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
@@ -214,19 +190,21 @@ export function connectSSE(
         }
       }
     } catch {
-      // Network/stream error — fall through to retry.
+      // Network/stream error — treat as terminal.
     }
 
-    if (!closed) scheduleRetry()
+    if (!closed) {
+      closed = true
+      callbacks.onError({ status: 0, message: "Connection lost" })
+    }
   }
 
-  void connect()
+  void run()
 
   return {
     close() {
       closed = true
-      if (retryTimeout) clearTimeout(retryTimeout)
-      controller?.abort()
+      controller.abort()
     },
   }
 }

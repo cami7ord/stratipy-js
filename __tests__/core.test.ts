@@ -245,20 +245,37 @@ describe("connectSSE", () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  it("calls onError after exhausting retries on network failure", async () => {
-    vi.useFakeTimers()
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network"))
+  it("calls onError on network failure without retrying", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network"))
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
     connectSSE(opts, "conv_1", callbacks)
-
-    // 1 initial + 3 retries = 4 attempts before onError
-    for (let i = 0; i < 4; i++) {
-      await vi.advanceTimersByTimeAsync(10_000)
-    }
+    await flush()
 
     expect(callbacks.onError).toHaveBeenCalledWith({ status: 0, message: "Connection lost" })
-    vi.useRealTimers()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("surfaces mid-stream drops as terminal error (no retry)", async () => {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(encoder.encode(`data: {"text":"Hi","conversationId":"conv_1"}\n\n`))
+        controller.close() // stream ends without `event: finish`
+      },
+    })
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(stream, { status: 200 })
+    )
+
+    const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
+    connectSSE(opts, "conv_1", callbacks)
+    await flush()
+
+    expect(callbacks.onMessage).toHaveBeenCalledWith("Hi")
+    expect(callbacks.onError).toHaveBeenCalledWith({ status: 0, message: "Connection lost" })
+    expect(callbacks.onFinish).not.toHaveBeenCalled()
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
   it("ignores messages without text field", async () => {
