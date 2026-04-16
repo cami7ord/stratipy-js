@@ -1,6 +1,6 @@
 {
   "name": "@stratipy/react",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Add an AI chat to your app. Works with React, Vue, Svelte, or vanilla JS.",
   "type": "module",
   "main": "./dist/index.cjs",
