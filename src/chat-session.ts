@@ -77,14 +77,14 @@ export class ChatSession {
 
       if (!this.connection) {
         this.connection = connectSSE(opts, this.conversationId, {
-          onMessage: ({ text, richContent }) => {
+          onMessage: (text) => {
             this.streaming = false
             const msgs = [...this.messages]
             const last = msgs[msgs.length - 1]
-            if (last?.role === "ai" && !last.text && !last.richContent) {
-              msgs[msgs.length - 1] = { ...last, text, richContent }
+            if (last?.role === "ai" && !last.text) {
+              msgs[msgs.length - 1] = { ...last, text }
             } else {
-              msgs.push({ id: crypto.randomUUID(), role: "ai", text, richContent })
+              msgs.push({ id: crypto.randomUUID(), role: "ai", text })
             }
             this.messages = msgs
             this.notify()
