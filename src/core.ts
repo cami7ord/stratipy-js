@@ -52,26 +52,6 @@ export async function createConversation(
   return handleResponse<ConversationCreated>(res)
 }
 
-export async function sendMessage(
-  opts: CoreOptions,
-  conversationId: string,
-  text: string,
-  attachments?: Attachment[]
-): Promise<void> {
-  const url = `${baseUrl(opts)}/strategies/instances/${opts.instanceId}/conversations/${conversationId}`
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-api-key": opts.apiKey,
-    },
-    body: JSON.stringify({ text, attachments: attachments ?? [] }),
-  })
-  if (!res.ok) {
-    await handleResponse(res)
-  }
-}
-
 export async function cancelConversation(
   opts: CoreOptions,
   conversationId: string
@@ -87,22 +67,30 @@ export async function cancelConversation(
   }
 }
 
-export interface SSECallbacks {
+export interface SendCallbacks {
   onMessage: (text: string) => void
   onFinish: () => void
   onError: (error: StratipyError) => void
 }
 
-export interface SSEConnection {
-  close(): void
+export interface SendHandle {
+  cancel(): void
 }
 
-export function connectSSE(
+/**
+ * Sends a user message and streams the assistant's turn back as Server-Sent Events.
+ * The underlying POST is short-lived: it stays open only for the duration of the turn
+ * (until the server emits a `finish` event), then closes. Callers get per-message
+ * `onMessage` callbacks and exactly one of `onFinish` or `onError`.
+ */
+export function sendMessage(
   opts: CoreOptions,
   conversationId: string,
-  callbacks: SSECallbacks
-): SSEConnection {
-  const url = `${baseUrl(opts)}/strategies/instances/${opts.instanceId}/conversations/${conversationId}/events`
+  text: string,
+  callbacks: SendCallbacks,
+  attachments?: Attachment[]
+): SendHandle {
+  const url = `${baseUrl(opts)}/strategies/instances/${opts.instanceId}/conversations/${conversationId}`
 
   let closed = false
   const controller = new AbortController()
@@ -111,8 +99,13 @@ export function connectSSE(
     let res: Response
     try {
       res = await fetch(url, {
-        method: "GET",
-        headers: { "X-api-key": opts.apiKey, Accept: "text/event-stream" },
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-api-key": opts.apiKey,
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify({ text, attachments: attachments ?? [] }),
         signal: controller.signal,
         cache: "no-store",
       })
@@ -202,7 +195,7 @@ export function connectSSE(
   void run()
 
   return {
-    close() {
+    cancel() {
       closed = true
       controller.abort()
     },

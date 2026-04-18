@@ -1,6 +1,6 @@
 import type { Attachment, Message, StratipyError } from "./types"
-import type { SSEConnection } from "./core"
-import { createConversation, sendMessage, cancelConversation, connectSSE } from "./core"
+import type { SendHandle } from "./core"
+import { createConversation, sendMessage, cancelConversation } from "./core"
 
 export interface ChatSessionOptions {
   instanceId: string
@@ -23,7 +23,7 @@ export class ChatSession {
   private streaming = false
   private error: StratipyError | null = null
   private conversationId: string | null = null
-  private connection: SSEConnection | null = null
+  private activeSend: SendHandle | null = null
   private sending = false
   private listeners = new Set<ChatSessionListener>()
 
@@ -64,46 +64,36 @@ export class ChatSession {
       }
 
       const userMsg: Message = { id: crypto.randomUUID(), role: "user", text: trimmed }
-      this.messages = [...this.messages, userMsg]
-      this.notify()
-
-      await sendMessage(opts, this.conversationId, trimmed, attachments)
-
       const placeholder: Message = { id: crypto.randomUUID(), role: "ai", text: "" }
-      this.messages = [...this.messages, placeholder]
+      this.messages = [...this.messages, userMsg, placeholder]
       this.streaming = true
       this.sending = false
       this.notify()
 
-      if (!this.connection) {
-        this.connection = connectSSE(opts, this.conversationId, {
-          onMessage: (text) => {
-            this.streaming = false
-            const msgs = [...this.messages]
-            const last = msgs[msgs.length - 1]
-            if (last?.role === "ai" && !last.text) {
-              msgs[msgs.length - 1] = { ...last, text }
-            } else {
-              msgs.push({ id: crypto.randomUUID(), role: "ai", text })
-            }
-            this.messages = msgs
-            this.notify()
-          },
-          onFinish: () => {
-            this.connection = null
-            this.streaming = false
-            this.sending = false
-            this.notify()
-          },
-          onError: (err) => {
-            this.connection = null
-            this.streaming = false
-            this.sending = false
-            this.error = err
-            this.notify()
-          },
-        })
-      }
+      this.activeSend = sendMessage(opts, this.conversationId, trimmed, {
+        onMessage: (incoming) => {
+          const msgs = [...this.messages]
+          const last = msgs[msgs.length - 1]
+          if (last?.role === "ai" && !last.text) {
+            msgs[msgs.length - 1] = { ...last, text: incoming }
+          } else {
+            msgs.push({ id: crypto.randomUUID(), role: "ai", text: incoming })
+          }
+          this.messages = msgs
+          this.notify()
+        },
+        onFinish: () => {
+          this.activeSend = null
+          this.streaming = false
+          this.notify()
+        },
+        onError: (err) => {
+          this.activeSend = null
+          this.streaming = false
+          this.error = err
+          this.notify()
+        },
+      }, attachments)
     } catch (err) {
       this.sending = false
       this.streaming = false
@@ -112,10 +102,10 @@ export class ChatSession {
     }
   }
 
-  /** Reset: cancel server-side, clear all state, start fresh */
+  /** Reset: cancel any in-flight send, server-side cancel, clear all state, start fresh */
   reset(): void {
-    this.connection?.close()
-    this.connection = null
+    this.activeSend?.cancel()
+    this.activeSend = null
 
     if (this.conversationId) {
       cancelConversation(this.coreOpts(), this.conversationId)
@@ -129,10 +119,10 @@ export class ChatSession {
     this.notify()
   }
 
-  /** Cancel the current AI response */
+  /** Cancel the current assistant turn (aborts the in-flight stream). */
   async cancel(): Promise<void> {
-    this.connection?.close()
-    this.connection = null
+    this.activeSend?.cancel()
+    this.activeSend = null
     this.streaming = false
     this.sending = false
 
@@ -145,8 +135,8 @@ export class ChatSession {
 
   /** Clean up resources. Call when done (e.g. page unload). */
   destroy(): void {
-    this.connection?.close()
-    this.connection = null
+    this.activeSend?.cancel()
+    this.activeSend = null
 
     if (this.conversationId) {
       cancelConversation(this.coreOpts(), this.conversationId)

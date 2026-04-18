@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest"
-import { createConversation, sendMessage, cancelConversation, connectSSE } from "../src/core"
+import { createConversation, sendMessage, cancelConversation } from "../src/core"
 import type { StratipyError } from "../src/types"
 
 const opts = {
@@ -92,52 +92,6 @@ describe("createConversation", () => {
   })
 })
 
-describe("sendMessage", () => {
-  it("sends correct request", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }))
-
-    await sendMessage(opts, "conv_1", "hello", [
-      { name: "file.csv", url: "https://s3/file.csv", size: 1024, contentType: "text/csv" },
-    ])
-
-    expect(fetch).toHaveBeenCalledWith(
-      "https://api.test.com/strategies/instances/inst_123/conversations/conv_1",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-api-key": "pk_abc" },
-        body: JSON.stringify({
-          text: "hello",
-          attachments: [{ name: "file.csv", url: "https://s3/file.csv", size: 1024, contentType: "text/csv" }],
-        }),
-      }
-    )
-  })
-
-  it("sends empty attachments by default", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }))
-
-    await sendMessage(opts, "conv_1", "hello")
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        body: JSON.stringify({ text: "hello", attachments: [] }),
-      })
-    )
-  })
-
-  it("throws on error response", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ message: "Not found" }), { status: 404 })
-    )
-
-    await expect(sendMessage(opts, "conv_1", "hello")).rejects.toMatchObject({
-      status: 404,
-      message: "Not found",
-    })
-  })
-})
-
 describe("cancelConversation", () => {
   it("sends POST to cancel endpoint", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(null, { status: 200 }))
@@ -176,18 +130,40 @@ async function flush() {
   for (let i = 0; i < 10; i++) await Promise.resolve()
 }
 
-describe("connectSSE", () => {
-  it("fetches events URL with X-api-key header (no ?key= in URL)", async () => {
+describe("sendMessage", () => {
+  it("POSTs to conversation endpoint with Accept: text/event-stream and body", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(""))
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hello", callbacks, [
+      { name: "file.csv", url: "https://s3/file.csv", size: 1024, contentType: "text/csv" },
+    ])
     await flush()
 
     const [url, init] = fetchSpy.mock.calls[0]
-    expect(url).toBe("https://api.test.com/strategies/instances/inst_123/conversations/conv_1/events")
-    expect((init as RequestInit).method).toBe("GET")
-    expect((init as RequestInit).headers).toMatchObject({ "X-api-key": "pk_abc" })
+    expect(url).toBe("https://api.test.com/strategies/instances/inst_123/conversations/conv_1")
+    const requestInit = init as RequestInit
+    expect(requestInit.method).toBe("POST")
+    expect(requestInit.headers).toMatchObject({
+      "Content-Type": "application/json",
+      "X-api-key": "pk_abc",
+      Accept: "text/event-stream",
+    })
+    expect(requestInit.body).toBe(JSON.stringify({
+      text: "hello",
+      attachments: [{ name: "file.csv", url: "https://s3/file.csv", size: 1024, contentType: "text/csv" }],
+    }))
+  })
+
+  it("sends empty attachments by default", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(""))
+
+    const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
+    sendMessage(opts, "conv_1", "hello", callbacks)
+    await flush()
+
+    const init = fetchSpy.mock.calls[0][1] as RequestInit
+    expect(init.body).toBe(JSON.stringify({ text: "hello", attachments: [] }))
   })
 
   it("calls onMessage with text chunks from SSE frames", async () => {
@@ -195,7 +171,7 @@ describe("connectSSE", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(frame))
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hi", callbacks)
     await flush()
 
     expect(callbacks.onMessage).toHaveBeenCalledWith("Hello")
@@ -215,7 +191,7 @@ describe("connectSSE", () => {
     )
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hi", callbacks)
     await flush()
 
     expect(callbacks.onMessage).toHaveBeenCalledWith("Hello")
@@ -225,38 +201,38 @@ describe("connectSSE", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(`event: finish\ndata: {}\n\n`))
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hi", callbacks)
     await flush()
 
     expect(callbacks.onFinish).toHaveBeenCalledTimes(1)
     expect(callbacks.onError).not.toHaveBeenCalled()
   })
 
-  it("surfaces 4xx as terminal error without retry", async () => {
+  it("surfaces 4xx as terminal error", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(JSON.stringify({ message: "Invalid key" }), { status: 401 })
     )
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hi", callbacks)
     await flush()
 
     expect(callbacks.onError).toHaveBeenCalledWith({ status: 401, message: "Invalid key", code: undefined })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  it("calls onError on network failure without retrying", async () => {
+  it("calls onError on network failure", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("network"))
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hi", callbacks)
     await flush()
 
     expect(callbacks.onError).toHaveBeenCalledWith({ status: 0, message: "Connection lost" })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
-  it("surfaces mid-stream drops as terminal error (no retry)", async () => {
+  it("surfaces mid-stream drops as terminal error", async () => {
     const encoder = new TextEncoder()
     const stream = new ReadableStream({
       start(controller) {
@@ -264,18 +240,17 @@ describe("connectSSE", () => {
         controller.close() // stream ends without `event: finish`
       },
     })
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(stream, { status: 200 })
     )
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hi", callbacks)
     await flush()
 
     expect(callbacks.onMessage).toHaveBeenCalledWith("Hi")
     expect(callbacks.onError).toHaveBeenCalledWith({ status: 0, message: "Connection lost" })
     expect(callbacks.onFinish).not.toHaveBeenCalled()
-    expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
   it("ignores messages without text field", async () => {
@@ -283,13 +258,13 @@ describe("connectSSE", () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(sseResponse(frame))
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    connectSSE(opts, "conv_1", callbacks)
+    sendMessage(opts, "conv_1", "hi", callbacks)
     await flush()
 
     expect(callbacks.onMessage).not.toHaveBeenCalled()
   })
 
-  it("close() aborts the in-flight request", async () => {
+  it("cancel() aborts the in-flight request", async () => {
     let aborted = false
     vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
       return new Promise((_, reject) => {
@@ -301,8 +276,8 @@ describe("connectSSE", () => {
     })
 
     const callbacks = { onMessage: vi.fn(), onFinish: vi.fn(), onError: vi.fn() }
-    const conn = connectSSE(opts, "conv_1", callbacks)
-    conn.close()
+    const handle = sendMessage(opts, "conv_1", "hi", callbacks)
+    handle.cancel()
     await flush()
 
     expect(aborted).toBe(true)

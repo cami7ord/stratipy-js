@@ -7,7 +7,6 @@ vi.mock("../src/core", () => ({
   createConversation: vi.fn(),
   sendMessage: vi.fn(),
   cancelConversation: vi.fn(),
-  connectSSE: vi.fn(),
 }))
 
 const defaultOptions = {
@@ -19,6 +18,22 @@ beforeEach(() => {
   vi.restoreAllMocks()
 })
 
+/**
+ * Mocks `sendMessage` so tests can drive streaming callbacks manually.
+ * Returns a ref whose `.current` holds the latest captured callbacks.
+ */
+function installSendMessageMock() {
+  const ref: { current: core.SendCallbacks | null; handle: core.SendHandle } = {
+    current: null,
+    handle: { cancel: vi.fn() },
+  }
+  vi.mocked(core.sendMessage).mockImplementation((_opts, _cid, _text, callbacks) => {
+    ref.current = callbacks
+    return ref.handle
+  })
+  return ref
+}
+
 describe("useStratipy", () => {
   it("returns correct initial state", () => {
     const { result } = renderHook(() => useStratipy(defaultOptions))
@@ -29,20 +44,13 @@ describe("useStratipy", () => {
     expect(result.current.conversationId).toBeNull()
   })
 
-  it("creates conversation, sends message, and starts SSE on first send", async () => {
+  it("creates conversation, sends message, and streams response on first send", async () => {
     vi.mocked(core.createConversation).mockResolvedValue({
       conversationId: "conv_1",
       instanceId: "inst_123",
       strategyId: "chat",
     })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
-
-    let sseCallbacks: core.SSECallbacks | null = null
-    const mockES = { close: vi.fn() }
-    vi.mocked(core.connectSSE).mockImplementation((_opts, _convId, callbacks) => {
-      sseCallbacks = callbacks
-      return mockES as unknown as EventSource
-    })
+    const send = installSendMessageMock()
 
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
@@ -57,11 +65,12 @@ describe("useStratipy", () => {
     )
     expect(result.current.conversationId).toBe("conv_1")
 
-    // Message sent
+    // Streaming send kicked off
     expect(core.sendMessage).toHaveBeenCalledWith(
       { instanceId: "inst_123", apiKey: "pk_abc", apiUrl: undefined },
       "conv_1",
       "hello",
+      expect.any(Object),
       undefined
     )
 
@@ -71,24 +80,17 @@ describe("useStratipy", () => {
     expect(result.current.messages[1]).toMatchObject({ role: "ai", text: "" })
     expect(result.current.streaming).toBe(true)
 
-    // First SSE event fills the empty placeholder
-    act(() => {
-      sseCallbacks!.onMessage("Hi there!")
-    })
+    // First streamed chunk fills the empty placeholder
+    act(() => { send.current!.onMessage("Hi there!") })
     expect(result.current.messages).toHaveLength(2)
     expect(result.current.messages[1].text).toBe("Hi there!")
 
-    // A second event in the same turn creates a new bubble (e.g. send_list followed by ask)
-    act(() => {
-      sseCallbacks!.onMessage("Anything else?")
-    })
+    // A second chunk in the same turn creates a new bubble
+    act(() => { send.current!.onMessage("Anything else?") })
     expect(result.current.messages).toHaveLength(3)
     expect(result.current.messages[2]).toMatchObject({ role: "ai", text: "Anything else?" })
 
-    // Finish
-    act(() => {
-      sseCallbacks!.onFinish()
-    })
+    act(() => { send.current!.onFinish() })
     expect(result.current.streaming).toBe(false)
   })
 
@@ -98,30 +100,17 @@ describe("useStratipy", () => {
       instanceId: "inst_123",
       strategyId: "chat",
     })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
-
-    let sseCallbacks: core.SSECallbacks | null = null
-    vi.mocked(core.connectSSE).mockImplementation((_opts, _convId, callbacks) => {
-      sseCallbacks = callbacks
-      return { close: vi.fn() } as unknown as EventSource
-    })
+    const send = installSendMessageMock()
 
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
-    // First send
-    await act(async () => {
-      await result.current.send("hello")
-    })
-    act(() => { sseCallbacks!.onFinish() })
+    await act(async () => { await result.current.send("hello") })
+    act(() => { send.current!.onFinish() })
 
-    // Second send
-    await act(async () => {
-      await result.current.send("follow up")
-    })
+    await act(async () => { await result.current.send("follow up") })
 
-    // createConversation called only once
     expect(core.createConversation).toHaveBeenCalledTimes(1)
-    expect(result.current.messages).toHaveLength(4) // user, ai, user, ai
+    expect(result.current.messages).toHaveLength(4)
   })
 
   it("sets error when createConversation fails", async () => {
@@ -145,29 +134,22 @@ describe("useStratipy", () => {
     expect(result.current.streaming).toBe(false)
   })
 
-  it("cancel closes EventSource and calls cancelConversation", async () => {
+  it("cancel aborts the in-flight send and calls cancelConversation", async () => {
     vi.mocked(core.createConversation).mockResolvedValue({
       conversationId: "conv_1",
       instanceId: "inst_123",
       strategyId: "chat",
     })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
     vi.mocked(core.cancelConversation).mockResolvedValue(undefined)
-
-    const mockES = { close: vi.fn() }
-    vi.mocked(core.connectSSE).mockReturnValue(mockES as unknown as EventSource)
+    const send = installSendMessageMock()
 
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
-    await act(async () => {
-      await result.current.send("hello")
-    })
+    await act(async () => { await result.current.send("hello") })
 
-    await act(async () => {
-      await result.current.cancel()
-    })
+    await act(async () => { await result.current.cancel() })
 
-    expect(mockES.close).toHaveBeenCalled()
+    expect(send.handle.cancel).toHaveBeenCalled()
     expect(core.cancelConversation).toHaveBeenCalledWith(
       { instanceId: "inst_123", apiKey: "pk_abc", apiUrl: undefined },
       "conv_1"
@@ -181,20 +163,12 @@ describe("useStratipy", () => {
       instanceId: "inst_123",
       strategyId: "chat",
     })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
-
-    let sseCallbacks: core.SSECallbacks | null = null
-    vi.mocked(core.connectSSE).mockImplementation((_opts, _convId, callbacks) => {
-      sseCallbacks = callbacks
-      return { close: vi.fn() } as unknown as EventSource
-    })
+    const send = installSendMessageMock()
 
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
-    await act(async () => {
-      await result.current.send("hello")
-    })
-    act(() => { sseCallbacks!.onFinish() })
+    await act(async () => { await result.current.send("hello") })
+    act(() => { send.current!.onFinish() })
 
     act(() => { result.current.reset() })
 
@@ -208,18 +182,12 @@ describe("useStratipy", () => {
     vi.mocked(core.createConversation)
       .mockResolvedValueOnce({ conversationId: "conv_1", instanceId: "inst_123", strategyId: "chat" })
       .mockResolvedValueOnce({ conversationId: "conv_2", instanceId: "inst_123", strategyId: "chat" })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
-
-    let sseCallbacks: core.SSECallbacks | null = null
-    vi.mocked(core.connectSSE).mockImplementation((_opts, _convId, callbacks) => {
-      sseCallbacks = callbacks
-      return { close: vi.fn() } as unknown as EventSource
-    })
+    const send = installSendMessageMock()
 
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
     await act(async () => { await result.current.send("hello") })
-    act(() => { sseCallbacks!.onFinish() })
+    act(() => { send.current!.onFinish() })
 
     act(() => { result.current.reset() })
 
@@ -235,20 +203,14 @@ describe("useStratipy", () => {
       instanceId: "inst_123",
       strategyId: "chat",
     })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
-    vi.mocked(core.connectSSE).mockReturnValue({ close: vi.fn() } as unknown as EventSource)
+    installSendMessageMock()
 
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
-    await act(async () => {
-      await result.current.send("hello")
-    })
+    await act(async () => { await result.current.send("hello") })
     expect(result.current.streaming).toBe(true)
 
-    // Second send while streaming — should be ignored
-    await act(async () => {
-      await result.current.send("ignored")
-    })
+    await act(async () => { await result.current.send("ignored") })
 
     expect(core.sendMessage).toHaveBeenCalledTimes(1)
   })
@@ -256,9 +218,7 @@ describe("useStratipy", () => {
   it("send is no-op for empty text", async () => {
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
-    await act(async () => {
-      await result.current.send("   ")
-    })
+    await act(async () => { await result.current.send("   ") })
 
     expect(core.createConversation).not.toHaveBeenCalled()
     expect(result.current.messages).toEqual([])
@@ -270,16 +230,13 @@ describe("useStratipy", () => {
       instanceId: "inst_123",
       strategyId: "chat",
     })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
-    vi.mocked(core.connectSSE).mockReturnValue({ close: vi.fn() } as unknown as EventSource)
+    installSendMessageMock()
 
     const { result } = renderHook(() =>
       useStratipy({ ...defaultOptions, config: { topic: "sales" } })
     )
 
-    await act(async () => {
-      await result.current.send("hello")
-    })
+    await act(async () => { await result.current.send("hello") })
 
     expect(core.createConversation).toHaveBeenCalledWith(
       expect.any(Object),
@@ -287,28 +244,20 @@ describe("useStratipy", () => {
     )
   })
 
-  it("handles SSE error callback", async () => {
+  it("surfaces streaming error callback", async () => {
     vi.mocked(core.createConversation).mockResolvedValue({
       conversationId: "conv_1",
       instanceId: "inst_123",
       strategyId: "chat",
     })
-    vi.mocked(core.sendMessage).mockResolvedValue(undefined)
-
-    let sseCallbacks: core.SSECallbacks | null = null
-    vi.mocked(core.connectSSE).mockImplementation((_opts, _convId, callbacks) => {
-      sseCallbacks = callbacks
-      return { close: vi.fn() } as unknown as EventSource
-    })
+    const send = installSendMessageMock()
 
     const { result } = renderHook(() => useStratipy(defaultOptions))
 
-    await act(async () => {
-      await result.current.send("hello")
-    })
+    await act(async () => { await result.current.send("hello") })
 
     act(() => {
-      sseCallbacks!.onError({ status: 0, message: "Connection lost" })
+      send.current!.onError({ status: 0, message: "Connection lost" })
     })
 
     expect(result.current.streaming).toBe(false)
