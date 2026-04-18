@@ -69,20 +69,22 @@ export class ChatSession {
 
       await sendMessage(opts, this.conversationId, trimmed, attachments)
 
-      const aiMsg: Message = { id: crypto.randomUUID(), role: "ai", text: "" }
-      this.messages = [...this.messages, aiMsg]
+      const placeholder: Message = { id: crypto.randomUUID(), role: "ai", text: "" }
+      this.messages = [...this.messages, placeholder]
       this.streaming = true
       this.sending = false
       this.notify()
 
       if (!this.connection) {
         this.connection = connectSSE(opts, this.conversationId, {
-          onMessage: (chunk) => {
+          onMessage: ({ text, richContent }) => {
             this.streaming = false
             const msgs = [...this.messages]
             const last = msgs[msgs.length - 1]
-            if (last?.role === "ai") {
-              msgs[msgs.length - 1] = { ...last, text: last.text + chunk }
+            if (last?.role === "ai" && !last.text && !last.richContent) {
+              msgs[msgs.length - 1] = { ...last, text, richContent }
+            } else {
+              msgs.push({ id: crypto.randomUUID(), role: "ai", text, richContent })
             }
             this.messages = msgs
             this.notify()

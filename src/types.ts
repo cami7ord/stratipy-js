@@ -9,11 +9,32 @@ export interface UseStratipyOptions {
   apiUrl?: string
 }
 
+export interface Button {
+  id: string
+  title: string
+}
+
+export interface ListRow {
+  id: string
+  title: string
+  description?: string
+}
+
+export interface ListSection {
+  title: string
+  rows: ListRow[]
+}
+
+export type RichContent =
+  | { type: "buttons"; body: string; buttons: Button[] }
+  | { type: "list"; body: string; buttonText: string; sections: ListSection[] }
+
 export interface Message {
   /** Local ID: "msg_0", "msg_1", etc. */
   id: string
   role: "user" | "ai"
   text: string
+  richContent?: RichContent
 }
 
 export interface Attachment {

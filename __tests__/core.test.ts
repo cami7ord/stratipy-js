@@ -198,7 +198,7 @@ describe("connectSSE", () => {
     connectSSE(opts, "conv_1", callbacks)
     await flush()
 
-    expect(callbacks.onMessage).toHaveBeenCalledWith("Hello")
+    expect(callbacks.onMessage).toHaveBeenCalledWith({ text: "Hello", richContent: undefined })
   })
 
   it("reassembles frames split across chunks", async () => {
@@ -218,7 +218,7 @@ describe("connectSSE", () => {
     connectSSE(opts, "conv_1", callbacks)
     await flush()
 
-    expect(callbacks.onMessage).toHaveBeenCalledWith("Hello")
+    expect(callbacks.onMessage).toHaveBeenCalledWith({ text: "Hello", richContent: undefined })
   })
 
   it("calls onFinish on finish event", async () => {
@@ -272,7 +272,7 @@ describe("connectSSE", () => {
     connectSSE(opts, "conv_1", callbacks)
     await flush()
 
-    expect(callbacks.onMessage).toHaveBeenCalledWith("Hi")
+    expect(callbacks.onMessage).toHaveBeenCalledWith({ text: "Hi", richContent: undefined })
     expect(callbacks.onError).toHaveBeenCalledWith({ status: 0, message: "Connection lost" })
     expect(callbacks.onFinish).not.toHaveBeenCalled()
     expect(fetchSpy).toHaveBeenCalledTimes(1)

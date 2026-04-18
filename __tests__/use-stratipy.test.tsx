@@ -71,16 +71,19 @@ describe("useStratipy", () => {
     expect(result.current.messages[1]).toMatchObject({ role: "ai", text: "" })
     expect(result.current.streaming).toBe(true)
 
-    // Simulate SSE chunks
+    // First SSE event fills the empty placeholder
     act(() => {
-      sseCallbacks!.onMessage("Hi ")
+      sseCallbacks!.onMessage({ text: "Hi there!" })
     })
-    expect(result.current.messages[1].text).toBe("Hi ")
-
-    act(() => {
-      sseCallbacks!.onMessage("there!")
-    })
+    expect(result.current.messages).toHaveLength(2)
     expect(result.current.messages[1].text).toBe("Hi there!")
+
+    // A second event in the same turn creates a new bubble (e.g. send_list followed by ask)
+    act(() => {
+      sseCallbacks!.onMessage({ text: "Anything else?" })
+    })
+    expect(result.current.messages).toHaveLength(3)
+    expect(result.current.messages[2]).toMatchObject({ role: "ai", text: "Anything else?" })
 
     // Finish
     act(() => {

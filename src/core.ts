@@ -87,8 +87,15 @@ export async function cancelConversation(
   }
 }
 
+import type { RichContent } from "./types"
+
+export interface SSEMessage {
+  text: string
+  richContent?: RichContent
+}
+
 export interface SSECallbacks {
-  onMessage: (text: string) => void
+  onMessage: (message: SSEMessage) => void
   onFinish: () => void
   onError: (error: StratipyError) => void
 }
@@ -157,7 +164,12 @@ export function connectSSE(
       }
       try {
         const parsed = JSON.parse(data)
-        if (parsed.text) callbacks.onMessage(parsed.text)
+        if (parsed.text || parsed.richContent) {
+          callbacks.onMessage({
+            text: parsed.text ?? "",
+            richContent: parsed.richContent,
+          })
+        }
       } catch {
         // ignore parse errors
       }
